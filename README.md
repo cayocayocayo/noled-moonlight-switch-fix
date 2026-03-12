@@ -1,4 +1,4 @@
-# ${\color{red}no}$led
+# noled
 
 Screen-off overlay for Nintendo Switch.
 
