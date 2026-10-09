@@ -26,7 +26,7 @@
 // Configuration
 // ---------------------------------------------------------------------------
 
-static constexpr const char *APP_VERSION = "1.0.0";
+static constexpr const char *APP_VERSION = "1.0.0-diag";
 
 /// How long the user must hold A to activate stay-awake mode.
 static constexpr u64 HOLD_DURATION_MS = 1500;
@@ -60,6 +60,13 @@ static bool    g_backlightOff    = false;  ///< backlight is currently off
 static bool    g_sleepLockActive = false;  ///< stay-awake mode is engaged
 static Service g_idleSrv;                  ///< idle:sys service handle
 static bool    g_idleAvailable   = false;  ///< idle:sys session is open
+
+// --- DIAGNOSTIC: record what the backlight service actually reports --------
+static Result  g_diagInitRc   = 0;   ///< result of lblInitialize()
+static Result  g_diagOffRc    = 0;   ///< result of last lblSwitchBacklightOff()
+static Result  g_diagStatRc   = 0;   ///< result of lblGetBacklightSwitchStatus()
+static LblBacklightSwitchStatus g_diagStatus = LblBacklightSwitchStatus_Enabled;
+static bool    g_diagDimming  = false; ///< lblIsDimmingEnabled()
 
 // ---------------------------------------------------------------------------
 // Service helpers
@@ -147,9 +154,33 @@ public:
             // Quick-tap: turn off once.  Stay-awake: keep forcing off every
             // frame so the backlight re-darkens after a manual power-button wake.
             if (g_lblAvailable && (!g_backlightOff || g_sleepLockActive)) {
-                lblSwitchBacklightOff(0);
+                g_diagOffRc = lblSwitchBacklightOff(0);
                 g_backlightOff = true;
             }
+
+            // DIAGNOSTIC: ask the service what state it thinks it is in.
+            if (g_lblAvailable) {
+                g_diagStatRc = lblGetBacklightSwitchStatus(&g_diagStatus);
+                lblIsDimmingEnabled(&g_diagDimming);
+            }
+
+            // Drawn on the overlay panel. If the backlight really is off you
+            // won't see this; if only the panel goes black, read the codes.
+            char line[96];
+            renderer->drawString("noled diagnostics", false, 20, 140, 18,
+                tsl::Color{0xF, 0xF, 0x0, 0xF});
+            snprintf(line, sizeof(line), "lbl available: %s", g_lblAvailable ? "yes" : "NO");
+            renderer->drawString(line, false, 20, 175, 16, tsl::Color{0xF, 0xF, 0xF, 0xF});
+            snprintf(line, sizeof(line), "init rc: 0x%X", g_diagInitRc);
+            renderer->drawString(line, false, 20, 200, 16, tsl::Color{0xF, 0xF, 0xF, 0xF});
+            snprintf(line, sizeof(line), "off rc: 0x%X", g_diagOffRc);
+            renderer->drawString(line, false, 20, 225, 16, tsl::Color{0xF, 0xF, 0xF, 0xF});
+            snprintf(line, sizeof(line), "status rc: 0x%X  status: %d", g_diagStatRc, (int)g_diagStatus);
+            renderer->drawString(line, false, 20, 250, 16, tsl::Color{0xF, 0xF, 0xF, 0xF});
+            snprintf(line, sizeof(line), "dimming enabled: %s", g_diagDimming ? "yes" : "no");
+            renderer->drawString(line, false, 20, 275, 16, tsl::Color{0xF, 0xF, 0xF, 0xF});
+            renderer->drawString("(status 0=off 1=on 2=turning on 3=turning off)", false, 20, 300, 13,
+                tsl::Color{0x8, 0x8, 0x8, 0xF});
 
             if (g_sleepLockActive) {
                 const u64 now       = armGetSystemTick();
@@ -331,7 +362,8 @@ private:
 class NoledOverlay : public tsl::Overlay {
 public:
     void initServices() override {
-        g_lblAvailable  = R_SUCCEEDED(lblInitialize());
+        g_diagInitRc    = lblInitialize();
+        g_lblAvailable  = R_SUCCEEDED(g_diagInitRc);
         g_idleAvailable = R_SUCCEEDED(smGetService(&g_idleSrv, "idle:sys"));
     }
 

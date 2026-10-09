@@ -14,3 +14,10 @@ jobs:
 
     - name: Build
       run: make -j2
+
+    - name: Upload overlay
+      uses: actions/upload-artifact@v4
+      with:
+        name: noled-diag
+        path: noled.ovl
+        if-no-files-found: error
